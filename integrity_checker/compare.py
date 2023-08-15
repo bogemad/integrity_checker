@@ -1,4 +1,4 @@
-import subprocess
+import subprocess, os
 
 def compute_md5(file_path):
     result = subprocess.run(['md5sum', file_path], stdout=subprocess.PIPE)
@@ -16,7 +16,7 @@ def compare_directory_files(local_dir, remote_host_and_dir, summary_file):
     remote_host, remote_dir = remote_host_and_dir.split(':', 1)
     
     with open(summary_file, 'w') as f:
-        f.write("Filename\tStatus\n")
+        f.write("Filename\tLocal Path\tRemote Path\tStatus\n")
         
         remote_files = subprocess.run(['ssh', remote_host, 'find', remote_dir, '-type', 'f'], stdout=subprocess.PIPE)
         remote_files = remote_files.stdout.decode('utf-8').strip().split('\n')
@@ -32,4 +32,4 @@ def compare_directory_files(local_dir, remote_host_and_dir, summary_file):
             else:
                 status = 'Not Found Locally'
             
-            f.write(f"{filename}\t{status}\n")
+            f.write(f"{filename}\t{remote_file}\t{local_file}\t{status}\n")

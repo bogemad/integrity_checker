@@ -2,17 +2,11 @@
 
 ## Overview
 
-`IntegrityChecker` is a Python package offering a command-line utility to verify the integrity of files based on their MD5 checksums. It facilitates comparisons between local and remote files, either individually or within directories. 
+`IntegrityChecker` verifies the integrity of files based on their MD5 checksums. It facilitates comparisons between local and remote files, either individually or within directories, even if the directory structure changes during transfer. 
 
 ## Installation
 
-To install `IntegrityChecker`, use pip:
-
-```bash
-pip install integrity_checker
-```
-
-For those who prefer a direct source installation:
+To install `IntegrityChecker`:
 
 ```
 git clone https://github.com/yourusername/integrity_checker.git
@@ -41,7 +35,7 @@ integrity_checker dir /path/to/local/directory remotehost:/path/to/remote/direct
 The resulting summary, in TSV (Tab-Separated Values) format, contains two columns: Filename and Status. The Status column can have values: Identical, Different, or Not Found Locally.
 
 ## Contributing
-We warmly welcome contributions! Feel free to initiate a Pull Request or discuss potential enhancements in the issues section.
+Contributions welcome.
 
 ## License
-IntegrityChecker is governed under the MIT License. For more details, refer to the LICENSE.md file.
+Watch this space...
