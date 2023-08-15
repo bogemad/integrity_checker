@@ -32,4 +32,4 @@ def compare_directory_files(local_dir, remote_host_and_dir, summary_file):
             else:
                 status = 'Not Found Locally'
             
-            f.write(f"{filename}\t{remote_file}\t{local_file}\t{status}\n")
+            f.write(f"{filename}\t{local_file}\t{remote_file}\t{status}\n")
