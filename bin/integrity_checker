@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from md5compare.cli import main
+from integrity_checker.cli import main
 
 if __name__ == '__main__':
     main()

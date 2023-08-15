@@ -7,5 +7,5 @@ setup(
     install_requires=[
         # Add your dependencies here
     ],
-    scripts=['bin/md5compare'],
+    scripts=['bin/integrity_checker'],
 )
