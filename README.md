@@ -9,7 +9,7 @@
 To install `IntegrityChecker`:
 
 ```
-git clone https://github.com/yourusername/integrity_checker.git
+git clone https://github.com/bogemad/integrity_checker.git
 cd integrity_checker
 pip install .
 ```
