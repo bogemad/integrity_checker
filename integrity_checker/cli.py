@@ -1,31 +1,22 @@
 import argparse
-from .compare import compare_files, compare_directory_files
+from .compare import compare_directory_files, build_local_md5_db, build_remote_md5_db
 
 def main():
-    parser = argparse.ArgumentParser(description='Compare MD5 checksums of local and remote files.')
-    subparsers = parser.add_subparsers(dest='command')
-    
-    # Single file comparison command
-    file_parser = subparsers.add_parser('file', help='Compare a single pair of files.')
-    file_parser.add_argument('local_file', help='Path to the local file')
-    file_parser.add_argument('remote', help='SSH-compatible remote host string, e.g. "remotehost:/path/to/remote/file"')
-    
-    # Directory comparison command
-    dir_parser = subparsers.add_parser('dir', help='Compare all files in a remote directory with local files.')
-    dir_parser.add_argument('local_dir', help='Path to the local directory')
-    dir_parser.add_argument('remote_dir', help='SSH-compatible remote host and directory string, e.g. "remotehost:/path/to/remote/directory"')
-    dir_parser.add_argument('summary_file', help='Path to the output summary TSV file')
+    parser = argparse.ArgumentParser(description='Compare MD5 checksums of files within local and remote directories.')
+    parser.add_argument('-l', '--local_dir', default=None, help='Path to the local directory')
+    parser.add_argument('-r', '--remote_dir', default=None, help='SSH-compatible remote host and directory string, e.g. "remotehost:/path/to/remote/directory"')
+    parser.add_argument('-s', '--summary_file', required=True, help='Path to the output summary TSV file')
+    parser.add_argument('-t', '--threads', default=1, help='Number of threads for md5 calculation')
     
     args = parser.parse_args()
     
-    if args.command == 'file':
-        remote_host, remote_file = args.remote.split(':', 1)
-        if compare_files(args.local_file, remote_host, remote_file):
-            print("The files are identical.")
-        else:
-            print("The files are different.")
-    elif args.command == 'dir':
-        compare_directory_files(args.local_dir, args.remote_dir, args.summary_file)
+    if args.local_dir and args.remote_dir:
+        compare_directory_files(args.local_dir, args.remote_dir, args.summary_file, args.threads)
+    if args.local_dir:
+        build_local_md5_db(args.local_dir, args.summary_file, args.threads)
+    if args.remote_dir:
+        build_remote_md5_db(args.remote_dir, args.summary_file, args.threads)
+
 
 if __name__ == '__main__':
     main()
