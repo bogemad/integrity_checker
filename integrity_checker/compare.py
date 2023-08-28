@@ -1,91 +1,68 @@
-import subprocess, os
 import pandas as pd
-import numpy as np
+from progressbar import progressbar
 from collections import defaultdict
+from .compute import import_local_files, id_best_file, consolidate_paths, find_singles, match_easy_pairs, compute_md5_remote, compute_md5_local
+from .sql import create_table, create_table_statement, create_compare_task
+from .mp import compute_md5_in_parallel
+import subprocess, os
 
-def compute_md5_local(path_df, threads):
-    path_df.to_csv('/tmp/tmpmd5.lcokelif', index=False, header=False)
-    result = subprocess.run(['parallel', '--bar', '-a', '/tmp/tmpmd5.lcokelif', '-j', threads, '-k', 'md5sum', '{}'], stdout=subprocess.PIPE)
-    md5 = [ x.split(' ')[0] for x in result.stdout.decode('utf-8').splitlines() ]
-    os.remove('/tmp/tmpmd5.lcokelif')
-    return md5
+def compare_directory_files(args, conn):
+    if conn:
+        create_table(conn, create_table_statement('compare', args.table_name))
+    else:
+        d = defaultdict(list)
+    lfiles = []
+    remote_files = []
+    for ldir in args.local_dir:
+        print(f"Identifying local files in {ldir}...")
+        lfiles += import_local_files(ldir)
+    ld = consolidate_paths(lfiles)
+    remote_files = []
+    for rdir in args.remote_dir:
+        print(f"Identifying remote files in {rdir}...")
+        remote_host, remote_dir = rdir.split(':', 1)
+        remote_data = subprocess.run(['ssh', remote_host, 'find', remote_dir, '-type', 'f'], stdout=subprocess.PIPE)
+        remote_files += remote_data.stdout.decode('utf-8').strip().split('\n')
+    rd = consolidate_paths(remote_files)
+    print("Pairing remote and local files...")
+    singles = find_singles(rd, ld)
+    print(f"Found {len(singles)} remote files not found locally.")
+    pairs = match_easy_pairs(rd, ld, singles)
+    print(f"Found {len(pairs)} remote and local files with unique filenames")
+    print(f"Matching duplicated filenames with different paths")
+    easy_remotes = set([s[0] for s in singles] + [ p[0] for p in pairs])
+    hard_remotes = []
+    for k,v in rd.items():
+        for p in v:
+            if not p in easy_remotes:
+                hard_remotes.append(p)
+    for p in progressbar(hard_remotes):
+        pairs.append((p, id_best_file(p, ld[os.path.basename(p)])))
+    print("Calculating md5 for remote and local files...")
+    df = pd.DataFrame(columns=['Remote Path', "Local Path", 'Remote md5', 'Local md5', 'Status'])
+    for remote_path, local_path in progressbar(pairs):
+        try:
+            md5_1 = compute_md5_remote(remote_host, remote_path)
+            if local_path == 'File not found':
+                md5_2 = 'NA'
+                is_equal = 'Local file not found'
+            else:
+                md5_2 = compute_md5_local(local_path)
+                if md5_1 == md5_2:
+                    is_equal = 'Identical'
+                else:
+                    is_equal = 'Different'
+            if conn:
+                create_compare_task(conn, (f"{remote_host}:{remote_path}", local_path, md5_1, md5_2, is_equal), args.table_name)
+            else:
+                df.append(pd.Series((f"{remote_host}:{remote_path}", local_path, md5_1, md5_2, is_equal), index=['Remote Path', "Local Path", 'Remote md5', 'Local md5', 'Status']), ignore_index=True)
+        except Exception as e:
+            # Handle exceptions so that one failure doesn't kill the entire process
+            print(e)
+            if conn:
+                create_compare_task(conn, (f"{remote_host}:{remote_path}", local_path, None, None, e), args.table_name)
+            else:
+                df.append(pd.Series((f"{remote_host}:{remote_path}", local_path, None, None, e), index=['Remote Path', "Local Path", 'Remote md5', 'Local md5', 'Status']), ignore_index=True)    
+    if not conn:    
+        df.to_csv(args.summary_file, sep='\t', index=False)
 
-def compute_md5_remote(remote_host, path_df, threads):
-    path_df.to_csv('/tmp/tmpmd5.rcokelif', index=False, header=False)
-    remote_md5 = subprocess.run(['parallel', '--bar', '-a', '/tmp/tmpmd5.rcokelif', '-j', threads, '-k', 'ssh', remote_host, 'md5sum', '{}'], stdout=subprocess.PIPE)
-    remote_md5 = [ x.split(' ')[0] for x in remote_md5.stdout.decode('utf-8').splitlines() ] 
-    os.remove('/tmp/tmpmd5.rcokelif')
-    return remote_md5
-
-def import_local_files(local_dir):
-    d = defaultdict(list)
-    for root, dirs, files in os.walk(local_dir):
-        for file in files:
-            file_path=os.path.join(root, file)
-            d['Filename'].append(file)
-            d['roots'].append(root)
-            d['Filepath'] = file_path
-    return pd.DataFrame(d)
-
-def id_best_file(remote_file, filename, df):
-    match_df = df[df['Filename'] == filename]
-    dirname = os.path.dirname(remote_file)
-    while True:
-        if len(match_df) == 1:
-            return os.path.join(str(match_df['roots'].iloc[0]), str(match_df['Filename'].iloc[0])), str(match_df['Local md5'].iloc[0])
-        if len(match_df) == 0:
-            return np.nan, np.nan
-        if len(match_df) > 1:
-            dir = os.path.basename(dirname)
-            match_df = match_df[match_df['roots'].str.contains(dir, case=True)]
-            dirname = os.path.dirname(dirname)
-            if dirname == '/':
-                return np.nan, np.nan
-
-def import_remote_files(remote_files, local_files):
-    d = defaultdict(list)
-    for remote_file in remote_files:
-        d['Filename'] = os.path.basename(remote_file)
-        d['Remote Path'] = remote_file
-        if local_files:
-            d['Local path'], d['Local md5'] = id_best_file(remote_file, d['Filename'], local_files)
-    return pd.DataFrame(d)
-
-
-def compare_directory_files(local_dir, remote_host_and_dir, summary_file, threads):
-    remote_host, remote_dir = remote_host_and_dir.split(':', 1)
-    print("Identifying local files...")
-    lfile_deets = import_local_files(local_dir)
-    print(f"Found {len(lfile_deets)} local files...")
-    print("Calculating md5 for local files...")
-    lfile_deets['Local md5'] = compute_md5_local(lfile_deets['Filepath'], threads)
-    print("Identifying remote files...")
-    remote_files = subprocess.run(['ssh', remote_host, 'find', remote_dir, '-type', 'f'], stdout=subprocess.PIPE)
-    remote_files = remote_files.stdout.decode('utf-8').strip().split('\n')
-    print(f"Found {len(remote_files)} remote files...")
-    print("Comparing remote and local files...")
-    df = import_remote_files(remote_files, remote_host, lfile_deets)
-    df['Remote md5'] = compute_md5_remote(remote_host, df['Remote Path'], threads)
-    df['Status'] = np.where(df['Local md5'] == df['Remote md5'], 'Identical', 'Different')
-    df.loc[df['Local md5'].isna(), 'Status'] = 'Local file not found'
-    df.to_csv(summary_file, sep='\t', index=False)
-
-def build_local_md5_db(local_dir, summary_file, threads):
-    print("Identifying local files...")
-    lfile_deets = import_local_files(local_dir)
-    print(f"Found {len(lfile_deets)} local files...")
-    print("Calculating md5 for local files...")
-    lfile_deets['Local md5'] = compute_md5_local(lfile_deets['Filepath'], threads)
-    lfile_deets = lfile_deets.drop('roots', axis=1)
-    lfile_deets.to_csv(summary_file, sep='\t', index=False)
-
-
-def build_remote_md5_db(remote_host_and_dir, summary_file, threads):
-    remote_host, remote_dir = remote_host_and_dir.split(':', 1)
-    print("Identifying remote files...")
-    remote_files = subprocess.run(['ssh', remote_host, 'find', remote_dir, '-type', 'f'], stdout=subprocess.PIPE)
-    remote_files = remote_files.stdout.decode('utf-8').strip().split('\n')
-    print(f"Found {len(remote_files)} remote files...")
-    df = import_remote_files(remote_files, None)
-    df['Remote md5'] = compute_md5_remote(remote_host, df['Remote Path'], threads)
-    df.to_csv(summary_file, sep='\t', index=False)

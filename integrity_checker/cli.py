@@ -1,22 +1,26 @@
-import argparse
-from .compare import compare_directory_files, build_local_md5_db, build_remote_md5_db
+import argparse, sys
+from .compare import compare_directory_files
+from .calc_md5 import build_local_md5_db, build_remote_md5_db
+from .sql import create_connection
+from .args import get_args
 
 def main():
-    parser = argparse.ArgumentParser(description='Compare MD5 checksums of files within local and remote directories.')
-    parser.add_argument('-l', '--local_dir', default=None, help='Path to the local directory')
-    parser.add_argument('-r', '--remote_dir', default=None, help='SSH-compatible remote host and directory string, e.g. "remotehost:/path/to/remote/directory"')
-    parser.add_argument('-s', '--summary_file', required=True, help='Path to the output summary TSV file')
-    parser.add_argument('-t', '--threads', default=1, help='Number of threads for md5 calculation')
-    
-    args = parser.parse_args()
-    
-    if args.local_dir and args.remote_dir:
-        compare_directory_files(args.local_dir, args.remote_dir, args.summary_file, args.threads)
-    if args.local_dir:
-        build_local_md5_db(args.local_dir, args.summary_file, args.threads)
-    if args.remote_dir:
-        build_remote_md5_db(args.remote_dir, args.summary_file, args.threads)
+    args = get_args()
+    if args.database:
+        if not args.table_name:
+            sys.exit("SQL Database table name option (-n/--table_name) is required with -d/--database.")
+        if args.summary_file:
+            sys.exit("Use either -s/--summary_file or -d/--database. Cannot use both.")
+        sqlconn = create_connection(args.database)
+    else:
+        sqlconn = None
 
+    if args.local_dir and args.remote_dir:
+        compare_directory_files(args, sqlconn)
+    if args.local_dir:
+        build_local_md5_db(args, sqlconn)
+    if args.remote_dir:
+        build_remote_md5_db(args, sqlconn)
 
 if __name__ == '__main__':
     main()
